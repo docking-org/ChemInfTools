@@ -1,6 +1,11 @@
 #!/bin/bash
 #$ -S /bin/bash
 #$ -cwd
+#
+# This incomplete script takes an input file, slices it up into mutliple input files and creates a qsub-mr job for each.
+# It also allows for manual submission of small subsets of the jobs after slicing.
+# The point of this script is to make managing huge, slow jobs and prevent the creating of very large numbers of
+# files or directories.
 
 set -e
 
