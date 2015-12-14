@@ -1,0 +1,352 @@
+#!/bin/bash
+
+USAGE="${0} [<SUBMISSION_OPTIONS>] [<INPUT_FILE> [<MAP_TASK_SCRIPT> [<MAP_TASK_ARGUMENTS>]]]
+
+Submit tasks via SGE with a subset of lines from the INPUT_FILE for each one.
+
+Examples:
+
+	Submit slices of 100 lines per task to run the script 
+	${0} -l 100 
+
+SUBMISSION OPTIONs:
+	-h|--help - Print this help message and quit
+	--no-submit - Perform all setup but actual skip submission
+	--clean [--force] - Remove all created directories and quit,
+		No confirmation will be given if --force is specified
+		Directories to delete:
+			./inputs/
+			./outputs/
+			./logs/
+			./merged/
+
+	Internal Implementation Controls:
+	-S|--shell - Shell variant to use. Can be path or (bash|sh|tcsh|csh).
+		Only bash/sh currently implemented.
+	--map-instance-script - Override the wrapper for running a map task
+	--reduce-instance-script - Override the wrapper for running a map task
+
+	Task Instance Scripts:
+	-I|--iterate - Iterate over task slice and call with values instead of the the whole file
+	-s|--setup-script - A BASH script to be sourced a the beginning of each task
+	-m|--map-script - The actual script to run from within each map task
+	-r|--reduce-script - The actual script to run from within the reduce job
+	
+	Input Control:
+	-d|--job-directory - Where to store the inputs, outputs, and logs for the job [default: pwd]
+	-i|--input-file - The input file to slice up
+	-l|--lines-per-task - The number of lines to be handled by each task
+
+	Queue Control:
+	-a|--qsub-args - A *quoted string* of arguments to be passed to qsub
+	-q|--queue - The name of the queue to submit to
+	-N|--name - The job name to submit with
+	-M|-tc|--max-running-tasks - The maximum number of tasks to run at a time for the job
+	-R|--dont-read-qsub-args - Skip extracting additional queing arguments from the submission script
+
+POSITIONAL ARGUMENT PARSING:
+	The first argument will be treated as the INPUT_FILE, unless the -i|--input-file option is used.
+	The remaining arguments will be treated as the map script and arguments 
+		unless the -m|--map-script argument was provided.
+"
+
+
+
+set -e
+
+INSTANCE_SHELL=""
+MAP_INSTANCE_SCRIPT=""
+REDUCE_INSTANCE_SCRIPT=""
+MAP_INSTANCE_ITERATE=""
+JOB_DIR="$( pwd )"
+SETUP_SCRIPT=""
+TASK_SCRIPT=""
+INPUT_FILE=""
+LINES_PER_TASK=100
+MAX_RUNNING_TASKS=""
+SUFFIX_LENGTH=2
+JOB_NAME=""
+QUEUE_NAME=""
+QSUB_ARGS=()
+READ_FROM_SCRIPT="yes"
+SKIP_SUBMISSION=""
+
+while [[ $# > 0 ]] ; do
+	ARG="${1}"
+	case "${ARG}" in
+		-h|--help)
+			echo "${USAGE}" 1>&2
+			exit -1
+			;;
+		--clean)
+			echo "Removing map directory structure" 1>&2
+			if [ "${2}" == "--force" ] ; then 
+				CONFIRM="y"
+				shift 2
+			else
+				echo -n "Really delete all qsub-mr directories? (y/N) "
+				read CONFIRM
+				shift 1
+			fi
+			if [ "${CONFIRM}" == 'y' ] ; then
+				rm -rfv ./inputs/ ./outputs/ ./logs/ ./merged/
+				exit 0
+			else
+				exit -1
+			fi
+			;;
+		--no-submit)
+			echo "--no-submit specified. Will only build directory structure" 1>&2
+			SKIP_SUBMISSION="yes"
+			shift 1
+			;;
+			
+			
+		# Internal implementation control
+		-S|--shell)
+			INSTANCE_SHELL="${2}"
+			shift 2
+			;;
+		--map-instance-script)
+			MAP_INSTANCE_SCRIPT="${2}"
+			shift 2
+			;;
+		--reduce-instance-script)
+			REDUCE_INSTANCE_SCRIPT="${2}"
+			shift 2
+			;;
+		-I|--iterate)
+			MAP_INSTANCE_ITERATE="yes"
+			shift 1
+			;;
+
+		# Instance Scripts
+		-s|--setup-script)
+			SETUP_SCRIPT="${2}"
+			shift 2
+			;;
+		-m|--map-script)
+			TASK_SCRIPT="${2}"
+			TASK_SCRIPT=( "${TASK_SCRIPT[@]}" )
+			shift 2
+			;;
+                -r|--reduce-script)
+			REDUCE_SCRIPT="${2}"
+			REDUCE_SCRIPT=( "${REDUCE_SCRIPT[@]}" )
+			shift 2
+			;;
+
+		# Input Control
+		-d|--job-directory)
+			JOB_DIR="${2}"
+			shift 2
+			;;
+		-i|--input)
+			INPUT_FILE="${2}"
+			shift 2
+			;;
+		-l|--lines-per-task)
+			LINES_PER_TASK="${2}"
+			shift 2
+			;;
+
+		# Queing Control
+		-a|--qsub-args)
+			QSUB_ARGS=( ${2[@]} )
+			shift 2
+			;;
+		-q|--queue)
+			QUEUE_NAME="${2}"
+			shift 2
+			;;
+		-N|--name)
+			JOB_NAME="${2}"
+			shift 2
+			;;
+		-M|--max-running-tasks|-tc)
+			MAX_RUNNING_TASKS="${2}"
+			shift 2
+			;;
+		-R|--dont-read-qsub-args)
+			READ_FROM_SCRIPT=""
+			shift 1
+			;;
+
+		# Default is input file
+		*)
+			if [ -z "${INPUT_FILE}" ] ; then
+				INPUT_FILE="${ARG}"
+				shift 1
+			elif [ -z "${TASK_SCRIPT}" ] ; then
+				TASK_SCRIPT=( "${ARG}" )
+				shift 1
+			elif [ -z "${ARG}" ] ; then
+				TASK_SCRIPT=( "${TASK_SCRIPT}" "${ARG}" )
+			fi
+			break
+			;;
+	esac
+done
+
+JOB_DIR=$( readlink -f "${JOB_DIR}" )
+
+if [ -z "${TASK_SCRIPT}" ] ; then
+	TASK_SCRIPT=( $@ )
+fi
+
+if [ ! -z "${TASK_SCRIPT}" ] ; then
+	TASK_EXECUTABLE="${TASK_SCRIPT[0]}"
+	TASK_EXECUTABLE="$( readlink -f "${TASK_EXECUTABLE}" )"
+
+	if [ "${#TASK_SCRIPT[@]}" -gt 1 ] ; then
+		TASK_EXECUTABLE_ARGS="${TASK_SCRIPT[@]:1}"
+		TASK_SCRIPT=( "${TASK_EXECUTABLE}" "${TASK_EXECUTABLE_ARGS[@]}" )
+	else
+		TASK_SCRIPT=( "${TASK_EXECUTABLE}" )
+	fi
+
+	if [ ! -x "${TASK_EXECUTABLE}" ] ; then
+		TASK_SCRIPT="/bin/sh -c '${TASK_SCRIPT[@]}'"
+	fi
+else
+	echo "You must provide a map task script!" 1>&2
+	echo "Use either the (-m|--map-script) argument or append as positional argument(s)" 1>&2
+	exit -1
+fi
+
+if [ -z "${INSTANCE_SHELL}" ] ; then
+	if [ -x "${TASK_EXECUTABLE}" -a 
+	! -z $( head -n 1 "${TASK_EXECUTABLE}" | grep -q '^#!' ) ] ; then
+		INSTANCE_SHELL=$( cut -d'!' -f 2  "${TASK_EXECUTABLE}" )
+	elif [ ! -z  "${TASK_EXECUTABLE#.*}" ] ; then
+		INSTANCE_SHELL="${TASK_EXECUTABLE#.*}"
+	fi
+fi
+
+INSTANCE_SHELL_NAME=$( basename "${INSTANCE_SHELL}" )
+if [ "${INSTANCE_SHELL_NAME}" == "bash" ] ; then
+	INSTANCE_SHELL_NAME="sh"
+# TODO: csh not implemented yet
+elif [ "${INSTANCE_SHELL_NAME}" == "tcsh" ] ; then
+	INSTANCE_SHELL_NAME="csh"
+else
+	INSTANCE_SHELL_NAME="sh"
+fi
+
+if [ -z "${MAP_INSTANCE_SCRIPT}" ] ; then
+	MAP_INSTANCE_SCRIPT=$( readlink -f "${BASH_SOURCE}" )-map."${INSTANCE_SHELL_NAME}"
+fi
+if [ -z "${REDUCE_INSTANCE_SCRIPT}" ] ; then
+	REDUCE_INSTANCE_SCRIPT=$( readlink -f "${BASH_SOURCE}" )-reduce."${INSTANCE_SHELL_NAME}"
+fi
+
+
+INPUTS="${JOB_DIR}/inputs"
+OUTPUTS="${JOB_DIR}/outputs"
+LOGS="${JOB_DIR}/logs"
+
+mkdir -pv "${INPUTS}" "${OUTPUTS}" "${LOGS}" 1>&2
+touch "${LOGS}/.qsub-map-logs" 1>&2
+
+if [ -z "${INPUT_FILE}" ] ; then
+	INPUT_FILE="${JOB_DIR}/input"
+fi
+
+if [ -f "${INPUT_FILE}" ] ; then
+	INPUT_FILE=$( readlink -f "${INPUT_FILE}" )
+	TOTAL_TASK_LINES=$( wc -l "${INPUT_FILE}" | cut -d' ' -f1 | sed 's/\s\+//g' )
+	NUM_TASK_INSTANCES=$( perl -e 'use POSIX;print ceil(@ARGV[0]/@ARGV[1])' "${TOTAL_TASK_LINES}" "${LINES_PER_TASK}" )
+	SUFFIX_LENGTH=$( perl -e 'use POSIX;print ceil(log(@ARGV[0])/log(26))' "${NUM_TASK_INSTANCES}" )
+	pushd "${INPUTS}" 1>&2
+	split -l "${LINES_PER_TASK}" -a "${SUFFIX_LENGTH}" "${INPUT_FILE}" 1>&2
+	popd 1>&2
+elif [ -d "${INPUT_FILE}" ] ; then
+	if [ "${INPUT_FILE}" != "${INPUTS}" ] ; then
+		echo "Warning: Input is directory. Symlinking input files" 1>&2
+		ln -svfn "${INPUT_FILE}/*" "${INPUTS}" 1>&2
+	fi
+elif [ ! -e "${INPUT_FILE}" ] ; then
+	echo "ERROR: Not input file. '${INPUT_FILE}' does not exist! Aborting." 1>&2
+	exit -1 1>&2
+fi
+
+NUM_TASK_INSTANCES=$( ls "${INPUTS}" | wc -l | cut -d' ' -f1 | sed 's/\s\+//g' )
+
+# Copy over script qsub arguments
+if [ ! -z "${READ_FROM_SCRIPT}" ] ; then
+	grep '^#\$ ' "${TASK_SCRIPT[0]}" | cut -d' ' -f 2- | \
+	while read ARG_LINE ; do
+		ARG_DATA=( ${ARG_LINE} )
+		if [ "${ARG_DATA[0]}" == '-N' ] ; then
+			if [ -z "${JOB_NAME}" ] ; then
+				JOB_NAME="${ARG_DATA[1]}"
+			fi
+		elif [ "${ARG_DATA[0]}" != "-cwd" -a "${ARG_DATA[0]}" != "-S" ] ; then
+			QSUB_ARGS="${QSUB_ARGS} ${ARG_DATA[@]}"
+		fi
+	done
+fi
+
+QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_JOB_DIR=${JOB_DIR}"
+if [ ! -z "${SETUP_SCRIPT}" ] ; then
+	QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_TASK_SETUP_SCRIPT=${SETUP_SCRIPT}"
+fi
+if [ ! -z "${QUEUE_NAME}" ] ; then
+	QSUB_ARGS="${QSUB_ARGS[@]} -q '${QUEUE_NAME}'"
+fi
+if [ ! -z "${MAP_INSTANCE_ITERATE}" ] ; then
+	QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_MAP_ITERATE=${MAP_INSTANCE_ITERATE}"
+fi
+
+QSUB_MAP_ARGS="${QSUB_ARGS} -t 1-${NUM_TASK_INSTANCES}"
+QSUB_REDUCE_ARGS="${QSUB_ARGS}"
+
+if [ ! -z "${MAX_RUNNING_TASKS}" ] ; then
+	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -tc ${MAX_RUNNING_TASKS}"
+fi
+if [ ! -z "${JOB_NAME}" ] ; then
+	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -N ${JOB_NAME}-map"
+	QSUB_REDUCE_ARGS="${QSUB_REDUCE_ARGS[@]} -N ${JOB_NAME}-reduce"
+elif echo "${QSUB_ARGS}" | grep -vq ' -N ' ; then
+	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -N $( basename ${TASK_SCRIPT[0]} )-map"
+	QSUB_REDUCE_ARGS="${QSUB_REDUCE_ARGS[@]} -N $( basename ${TASK_SCRIPT[0]} )-reduce"
+else
+	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -N map"
+	QSUB_REDUCE_ARGS="${QSUB_REDUCE_ARGS[@]} -N reduce"
+fi
+QSUB_MAP_ARGS=( ${QSUB_MAP_ARGS} )
+QSUB_REDUCE_ARGS=( ${QSUB_REDUCE_ARGS} )
+
+echo "Tasks:   ${NUM_TASK_INSTANCES} instances" 1>&2
+echo "Job dir: ${JOB_DIR}" 1>&2
+echo "Script:  ${TASK_SCRIPT}" 1>&2
+echo "" 1>&2
+
+echo qsub "${QSUB_MAP_ARGS[@]}" "${MAP_INSTANCE_SCRIPT}" "${TASK_SCRIPT[@]}" 1>&2
+if [ -z "${SKIP_SUBMISSION}" ] ; then
+	pushd "${LOGS}" 1>&2
+	MAP_QSUB_OUTPUT=$( qsub "${QSUB_MAP_ARGS[@]}" "${MAP_INSTANCE_SCRIPT}" "${TASK_SCRIPT[@]}" )
+	MAP_JOB_ID="$( echo "${MAP_QSUB_OUTPUT}" | cut -d' ' -f 3 | cut -d. -f 1 )"
+	popd 1>&2
+else
+	MAP_JOB_ID="<MAP_JOB_ID>"
+fi
+	
+if [ ! -z "${REDUCE_SCRIPT}" ] ; then
+	echo "${QSUB_REDUCE_ARGS[@]}" -hold_jid "${MAP_JOB_ID}" 1>&2
+	if [ -z $"{SKIP_SUBMISSION}" ] ; then
+		pushd "${LOGS}" 1>&2
+		QSUB_REDUCE_ARGS=( "${QSUB_REDUCE_ARGS[@]}" -hold_jid "${MAP_JOB_ID}" )
+		REDUCE_QSUB_OUTPUT=$( qsub "${QSUB_REDUCE_ARGS[@]}" "${REDUCE_INSTANCE_SCRIPT}" "${REDUCE_SCRIPT[@]}" )
+		REDUCE_JOB_ID="$( echo "${REDUCE_QSUB_OUTPUT}" | cut -d' ' -f 3 | cut -d. -f 1 )"
+		popd 1>&2
+	fi
+fi
+
+if [ -z "${SKIP_SUBMISSION}" ] ; then
+	echo "SGE Job (map):    ${MAP_JOB_ID}"
+	if [ ! -z "${REDUCE_JOB_ID}" ] ; then
+		echo "SGE Job (reduce): ${REDUCE_JOB_ID}"
+	fi
+fi
+

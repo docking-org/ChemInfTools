@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>ZINC Reactor</title>
+    </head>
+    <body>
+        <h1>ZINC Binary SMARTS Reactor Utility</h1>
+        <form action="/react" method="post" enctype="multipart/form-data">
+            <fieldset>
+                <legend>Reaction Inputs</legend>
+                <div>
+                    <label for="reaction">
+                        Reaction SMARTS:
+                        <input name="reaction" id="reaction" placeholder="SMARTS Reaction (e.g. [C:1](=[O:2])O.[N:3]>>[C:1](=[O:2])[N:3] )" size="50">
+                    </label>
+                </div>
+                <div>
+                    <label for="reactant1">
+                        Reactant 1:
+                        <input name="reactant1" id="reactant1" type="file">
+                    </label>
+                </div>
+                <div>
+                    <label for="reactant2">
+                        Reactant 2:
+                        <input name="reactant2" id="reactant2" type="file">
+                    </label>
+                </div>
+                <div>
+                    <input type="submit" value="React">
+                </div>
+            </fieldset>
+        </form>
+    </body>
+</html>

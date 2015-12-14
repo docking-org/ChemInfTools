@@ -1,0 +1,139 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -cwd
+#
+# This incomplete script takes an input file, slices it up into mutliple input files and creates a qsub-mr job for each.
+# It also allows for manual submission of small subsets of the jobs after slicing.
+# The point of this script is to make managing huge, slow jobs and prevent the creating of very large numbers of
+# files or directories.
+
+set -e
+
+META_INSTANCE_SCRIPT=$( readlink -f "${BASH_SOURCE}" )
+MR_INSTANCE_SCRIPT=$( dirname "${META_INSTANCE_SCRIPT}" )/$( basename "${META_INSTANCE_SCRIPT}" -meta )
+REDUCE_INSTANCE_SCRIPT="${MR_INSTANCE_SCRIPT}"-reduce
+JOB_DIR="$( pwd )"
+INPUT_FILE=""
+LINES_PER_JOB=100000
+FIRST_JOB=1
+LAST_JOB=""
+SUFFIX_LENGTH=2
+QSUB_MAP_ARGS=()
+RESUBMIT=""
+
+while [[ $# > 1 ]] ; do
+	ARG="${1}"
+	case "${ARG}" in
+		# Internal implementation control
+		--mr-instance-script)
+			MR_INSTANCE_SCRIPT="${2}"
+			shift 2
+			;;
+		--mr-reduce-instance-script)
+			REDUCE_INSTANCE_SCRIPT="${2}"
+			shift 2
+			;;
+
+		# Input Control
+		-d|--job-directory)
+			JOB_DIR="${2}"
+			shift 2
+			;;
+		-L|--lines-per-job)
+			LINES_PER_JOB="${2}"
+			shift 2
+			;;
+
+		--start-at)
+			FIRST_JOB="${2}"
+			shift 2
+			;;
+		--stop-at)
+			LAST_JOB="${2}"
+			shift 2
+			;;
+		--resubmit)
+			RESUBMIT="yes"
+			shift 1
+			;;
+
+		# Args to propagate
+		--map-instance-script|--reduce-instance-script)
+			QSUB_MAP_ARGS=( "${QSUB_MAP_ARGS[@]}" "${1}" "${2}" )
+			shift 2
+			;;
+		--setup-script|--map-script|--reduce-script)
+			QSUB_MAP_ARGS=( "${QSUB_MAP_ARGS[@]}" "${1}" "${2}" )
+			shift 2
+			;;
+		--queue|--qsub-args|--name)
+			QSUB_MAP_ARGS=( "${QSUB_MAP_ARGS[@]}" "${1}" "${2}" )
+			shift 2
+			;;
+		--max-running-tasks|--lines-per-task)
+			QSUB_MAP_ARGS=( "${QSUB_MAP_ARGS[@]}" "${1}" "${2}" )
+			shift 2
+			;;
+		-s|-m|-r|-l|-a|-q|-N|-M|-s|-l|-tc)
+			QSUB_MAP_ARGS=( "${QSUB_MAP_ARGS[@]}" "${1}" "${2}" )
+			shift 2
+			;;
+
+		*)
+			INPUT_FILE="${ARG}"
+			shift 1
+			break
+			;;
+	esac
+done
+
+JOB_DIR=$( readlink -f "${JOB_DIR}" )
+
+SLICES="${JOB_DIR}/slices"
+JOBS="${JOB_DIR}/jobs"
+
+if [ -z "${RESUBMIT}" ] ; then
+	mkdir -pv "${SLICES}" "${JOBS}" 1>&2
+
+	INPUT_FILE=$( readlink -f "${INPUT_FILE}" )
+	TOTAL_JOB_LINES=$( wc -l "${INPUT_FILE}" | cut -d' ' -f1 | sed 's/\s\+//g' )
+	NUM_JOB_INSTANCES=$( perl -e 'use POSIX;print ceil(@ARGV[0]/@ARGV[1])' "${TOTAL_JOB_LINES}" "${LINES_PER_JOB}" )
+	SUFFIX_LENGTH=$( perl -e 'use POSIX;print ceil(log(@ARGV[0])/log(26))' "${NUM_JOB_INSTANCES}" )
+	
+	pushd "${SLICES}" 1>&2
+	split -l "${LINES_PER_JOB}" -a "${SUFFIX_LENGTH}" "${INPUT_FILE}" 1>&2
+	popd 1>&2
+
+	NUM_JOB_INSTANCES=$( ls "${SLICES}" | wc -l | cut -d' ' -f1 | sed 's/\s\+//g' )
+	echo "${NUM_JOB_INSTANCES} slices created" 1>&2
+else
+	NUM_JOB_INSTANCES=$( ls "${SLICES}" | wc -l | cut -d' ' -f1 | sed 's/\s\+//g' )
+	echo "${NUM_JOB_INSTANCES} slices found" 1>&2
+fi
+
+if [ -z "${LAST_JOB}" ] ; then
+	LAST_JOB="${NUM_JOB_INSTANCES}"
+fi
+
+if [ "${FIRST_JOB}" != "1" -o "${LAST_JOB}" != "${NUM_JOB_INSTANCES}" ] ; then
+	echo "Only submitting jobs $FIRST_JOB-$LAST_JOB" 1>&2
+fi
+
+pushd ${JOBS} 1>&2
+SLICE_NUMBER=0
+for SLICE_INPUT in $( ls ${SLICES}/* ) ; do
+	SLICE_NUMBER=$(( $SLICE_NUMBER + 1 ))
+	SLICE_NAME="$( basename "${SLICE_INPUT}" )"
+	SLICE_DIR="${JOBS}/${SLICE_NAME}"
+	if [[ ( "${SLICE_NUMBER}" -lt "${FIRST_JOB}" ) || ( "${SLICE_NUMBER}" -gt "${LAST_JOB}" ) ]] ; then
+		continue
+	fi
+	mkdir -pv "${SLICE_DIR}" 1>&2
+	pushd "${SLICE_DIR}" 1>&2
+	QSUB_MR_OUTPUT=$( ${MR_INSTANCE_SCRIPT} "${QSUB_MAP_ARGS[@]}" "${SLICE_INPUT}" "$@" )
+	LAST_JOB_ID=$( echo "${QSUB_MR_OUTPUT}" | grep '^SGE Job (' | cut -d ':' -f2 | sed 's/\s\+//g' )
+	echo "${SLICE_NUMBER}: ${SLICE_NAME} (${LAST_JOB_ID})" 1>&2
+	echo "${QSUB_MR_OUTPUT}" | sed 's/^/	/' 1>&2
+	popd 1>&2
+done
+popd 1>&2

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>MolGrep Server</title>
+    </head>
+    <body>
+        <h1>ZINC Binary SMARTS Reactor Utility</h1>
+        <form action="/filter" method="post" enctype="multipart/form-data">
+            <fieldset>
+                <legend>SMILES/SMARTS Filter</legend>
+                <div>
+                    <label for="smarts">
+                        SMARTS Pattern
+                        <input name="pattern" id="smarts" placeholder="SMARTS Pattern (e.g. [C:1](=[O:2])O.[N:3]" size="50">
+                    </label>
+                </div>
+                <div>
+                    <label for="smiles">
+                        Search File
+                        <input name="source" id="smiles" type="file">
+                    </label>
+                </div>
+                <div>
+                    <input type="submit" value="Filter">
+                </div>
+            </fieldset>
+        </form>
+    </body>
+</html>
