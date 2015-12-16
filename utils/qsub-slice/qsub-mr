@@ -37,6 +37,12 @@ SUBMISSION OPTIONs:
 	-i|--input-file - The input file to slice up
 	-l|--lines-per-task - The number of lines to be handled by each task
 
+	Output Control:
+	-O|--output-method - Method to use for transfering output. One of (/, -, <FILE>)
+		/: Treat the job's scratch directory as the result of the task
+		-: Treat the contents of stdout as the task results
+		<FILE>: treat the contents of <FILE> relative to the scratch dir as the result
+
 	Queue Control:
 	-a|--qsub-args - A *quoted string* of arguments to be passed to qsub
 	-q|--queue - The name of the queue to submit to
@@ -62,6 +68,7 @@ JOB_DIR="$( pwd )"
 SETUP_SCRIPT=""
 TASK_SCRIPT=""
 INPUT_FILE=""
+OUTPUT_METHOD="/"
 LINES_PER_TASK=100
 MAX_RUNNING_TASKS=""
 SUFFIX_LENGTH=2
@@ -150,6 +157,12 @@ while [[ $# > 0 ]] ; do
 			shift 2
 			;;
 
+		# Output Control
+		-O|--output-method)
+			OUTPUT_METHOD="${2}"
+			shift 2
+			;;
+
 		# Queing Control
 		-a|--qsub-args)
 			QSUB_ARGS=( ${2[@]} )
@@ -181,7 +194,7 @@ while [[ $# > 0 ]] ; do
 				TASK_SCRIPT=( "${ARG}" )
 				shift 1
 			elif [ -z "${ARG}" ] ; then
-				TASK_SCRIPT=( "${TASK_SCRIPT}" "${ARG}" )
+				TASK_SCRIPT+=( "${ARG}" )
 			fi
 			break
 			;;
@@ -196,17 +209,20 @@ fi
 
 if [ ! -z "${TASK_SCRIPT}" ] ; then
 	TASK_EXECUTABLE="${TASK_SCRIPT[0]}"
-	TASK_EXECUTABLE="$( readlink -f "${TASK_EXECUTABLE}" )"
+	if [ ! -z "$( which "${TASK_EXECUTABLE}" )" ] ; then
+		TASK_EXECUTABLE="$( which "${TASK_EXECUTABLE}" )"
+	else
+		_TASK_EXECUTABLE="$( readlink -f "${TASK_EXECUTABLE}" )"
+		if [ -e "${_TASK_EXECUTABLE}" ] ; then
+			TASK_EXECUTABLE="${_TASK_EXECUTABLE}"
+		fi
+	fi
 
 	if [ "${#TASK_SCRIPT[@]}" -gt 1 ] ; then
 		TASK_EXECUTABLE_ARGS="${TASK_SCRIPT[@]:1}"
-		TASK_SCRIPT=( "${TASK_EXECUTABLE}" "${TASK_EXECUTABLE_ARGS[@]}" )
+		TASK_SCRIPT=( "${TASK_EXECUTABLE}" ${TASK_EXECUTABLE_ARGS[@]} )
 	else
 		TASK_SCRIPT=( "${TASK_EXECUTABLE}" )
-	fi
-
-	if [ ! -x "${TASK_EXECUTABLE}" ] ; then
-		TASK_SCRIPT="/bin/sh -c '${TASK_SCRIPT[@]}'"
 	fi
 else
 	echo "You must provide a map task script!" 1>&2
@@ -215,11 +231,12 @@ else
 fi
 
 if [ -z "${INSTANCE_SHELL}" ] ; then
-	if [ -x "${TASK_EXECUTABLE}" -a 
-	! -z $( head -n 1 "${TASK_EXECUTABLE}" | grep -q '^#!' ) ] ; then
-		INSTANCE_SHELL=$( cut -d'!' -f 2  "${TASK_EXECUTABLE}" )
+	if [ -x "${TASK_EXECUTABLE}" ] ; then
+		INSTANCE_SHELL=$( head -n 1 "${TASK_EXECUTABLE}" | cut -d'!' -f 2 )
 	elif [ ! -z  "${TASK_EXECUTABLE#.*}" ] ; then
 		INSTANCE_SHELL="${TASK_EXECUTABLE#.*}"
+	else
+		INSTANCE_SHELL="sh"
 	fi
 fi
 
@@ -287,7 +304,7 @@ if [ ! -z "${READ_FROM_SCRIPT}" ] ; then
 	done
 fi
 
-QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_JOB_DIR=${JOB_DIR}"
+QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_JOB_DIR=${JOB_DIR} -v __MR_SGE_OUTPUT_METHOD=${OUTPUT_METHOD}"
 if [ ! -z "${SETUP_SCRIPT}" ] ; then
 	QSUB_ARGS="${QSUB_ARGS[@]} -v __MR_SGE_TASK_SETUP_SCRIPT=${SETUP_SCRIPT}"
 fi
@@ -319,6 +336,7 @@ QSUB_REDUCE_ARGS=( ${QSUB_REDUCE_ARGS} )
 
 echo "Tasks:   ${NUM_TASK_INSTANCES} instances" 1>&2
 echo "Job dir: ${JOB_DIR}" 1>&2
+echo "Output:  ${OUTPUT_METHOD}" 1>&2
 echo "Script:  ${TASK_SCRIPT}" 1>&2
 echo "" 1>&2
 
