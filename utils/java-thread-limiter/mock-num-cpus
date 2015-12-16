@@ -14,9 +14,9 @@ LIB_PATH="${LIB_DIR}/${LIB_NAME}"
 
 if [ ! -e "${LIB_PATH}" ]; then
 	echo "Compling CPU limit shared library (libnumcpus.so)..." 1>&2
-	mkdir -pv "${LIB_DIR}"
+	mkdir -pv "${LIB_DIR}" 1>&2
 	LIB_SRC="${SRC_DIR}/numcpus.c"
-	gcc -O3 -fPIC -shared -Wl,-soname,libnumcpus.so -o "${LIB_PATH}" "${LIB_SRC}"
+	gcc -O3 -fPIC -shared -Wl,-soname,libnumcpus.so -o "${LIB_PATH}" "${LIB_SRC}" 1>&2
 fi
 
 if [ -z "${LIMIT_JVM_NUM_CPUS}" ] ; then
