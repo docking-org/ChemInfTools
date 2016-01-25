@@ -6,6 +6,7 @@ import contextlib
 from cStringIO import StringIO
 import functools
 import itertools
+import logging
 import os
 import sys
 import tempfile
@@ -23,16 +24,18 @@ from flask import (
 )
 
 from rdkit.Chem import (
-    RDKFingerprint, 
+    EditableMol,
     MolFromSmarts,
-    SmilesWriter,
     MolFromSmiles,
+    RDKFingerprint, 
+    ReplaceSidechains,
+    SmilesWriter,
 )
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import (
-    TanimotoSimilarity, 
-    DiceSimilarity,
-    TverskySimilarity,
+    BulkTanimotoSimilarity, 
+    BulkDiceSimilarity,
+    BulkTverskySimilarity,
 )
 
 DEBUG = True
@@ -45,44 +48,74 @@ DESCRIPTORS = {
 
 
 COEFFICIENTS = {
-    'tanimoto': lambda x, y, *args: TanomotoSimilarity(x, y),
-    'dice': lambda x, y, *args: DiceSimilarity(x, y),
-# TODO: Add parsing of alpha and beta
-#    'tversky': lambda x, y, a, b, *args: TverskySimilarity(x, y, a, b), 
+    'tanimoto': lambda x, ys, *args: BulkTanimotoSimilarity(x, ys),
+    'dice': lambda x, ys, *args: BulkDiceSimilarity(x, ys),
+    'tversky': lambda x, ys, a, b, *args: BulkTverskySimilarity(x, ys, a, b), 
 }
 
 
-def parse_smiles(it):
-    for line in it:
-        smiles, cid = str(line).split()[:2]
+def mol_parse(it, parser=MolFromSmiles):
+    for num, line in enumerate(it, start=1):
         try:
-            mol = MolFromSmiles(smiles)
+            smiles, cid = str(line).split()[:2]
+            if not smiles:
+                raise ValueError("No acceptable input to parse")
+            mol = parser(smiles)
             if mol is not None:
                 mol.SetProp('_Name', cid)
                 yield mol
+            else:
+                raise ValueError("Parsing failed to yield a result")
         except Exception as e:
-            logging.warning("Failed to parse/load {cid}. Reason: {!r}".format(cid, e))
+            logging.warning("Failed to parse/load ${:d}: {cid}. Reason: {!r}".format(num, cid, e))
 
 
-def run_smarts_filter(smarts, smiles):
-    needle = MolFromSmarts(smarts)
-    haystack = parse_smiles(smiles)
-    return (mol for mol in haystack if mol.HasSubstructMatch(needle))
+def get_matching_parts(mol, *matches):
+    indices = range(mol.GetNumAtoms())
+    for match in matches:
+        match = set(match)
+        part = EditableMol(mol)
+        for idx in indices:
+            if idx not in match:
+                part.RemoveAtom(idx)
+        yield part.GetMol()
 
 
-def run_similarity_filter(needle, haystack, coefficient, descriptor, threshold):
-    query = descriptor(MolFromSmiles(needle))
-    mols = parse_smiles(haystack)
-    for mol in mols:
-        fp = descriptor(mol)
-        if coefficient(query, fp) >= threshold:
-            yield mol
+def run_smarts_filter(needles, haystack, invert=False, annotate=False):
+    for needle in needles:
+        if annotate:
+            for hay in haystack:
+                matches = needle.GetSubstuctMatches(hay, useChirality=True)
+                if matches:
+                    matching_parts = get_matching_parts(needle, *matches)
+                    matching_smiles = [MolToSmiles(part, isomericSmiles=True) for part in matching_pargs]
+                    annotation = ';'.join(matching_smiles)
+                    needle.SetProp('match', annotaion)
+                    yield needle
+                elif invert:
+                    needle.SetProp('match', annotaion)
+                    yield needle
+        elif not any(needle.HasSubstructMatch(hay, useChirality=True) for hay in haystack) == invert:
+            yield needle
 
 
-def stream_smiles_results(operation, query, source):
+def run_similarity_filter(needles, haystack, coefficient, descriptor, threshold, invert=False, annotate=False):
+    for needle_mol, needle_fp in needles:
+        similarities = coefficient(needle_fp, haystack)
+        matches = (similarity >= threshold for similarity in similarities)
+        if not any(matches) == invert:
+            if annotate:
+                annotation = max(similarities)
+                needle_mol.SetProp('match', '{:0.2f}'.format(annotation))
+            yield needle_mol
+
+
+def stream_smiles_results(operation, query, source, annotate=False):
     buf = StringIO()
-    filtered = operation(query, source)
+    filtered = operation(query, source, annotate=annotate)
     results = SmilesWriter(buf, isomericSmiles=True, includeHeader=False)
+    if annotate:
+        results.SetProps(['match'])
     for result in filtered:
         buf.truncate(0)
         results.write(result)
@@ -90,13 +123,42 @@ def stream_smiles_results(operation, query, source):
         yield buf.getvalue()
         
 
-def write_smiles_results(operation, query, source, dest):
-    filtered = operation(query, source)
+def write_smiles_results(operation, needles, haystack, dest, annotate=False):
+    filtered = operation(needles, haystack, annotate=annotate)
     results = SmilesWriter(dest, isomericSmiles=True, includeHeader=False)
+    if annotate:
+        results.SetProps(['match'])
     for result in filtered:
         results.write(result)
     return results.NumMols()
 
+
+def query_loader(parser, wrap=list, mode='r', reader_cls=argparse.FileType):
+    reader = reader_cls(mode)
+
+    def loader(path):
+        source = reader(path)
+        mols = mol_parse(source, parser=parser)
+        mols = wrap(mols)
+        return mols
+
+    return loader
+
+
+def smiles_reader(smiles, **kwargs):
+    kwargs.setdefault('sanitize', True)
+    return MolFromSmiles(smiles, **kwargs)
+
+
+def smarts_reader(smarts, **kwargs):
+    kwargs.setdefault('mergeHs', True)
+    return MolFromSmarts(smarts, **kwargs)
+
+
+def fp_reader(smiles, descriptor):
+    mol = smiles_reader(smiles)
+    fp = descriptor(mol)
+    return mol
 
 
 app = Flask(__name__)
@@ -151,19 +213,31 @@ def filter_():
 
 
 def main(params):
+    source = params.input
+    dest = params.output
+
     if params.command == 'smarts':
-        operation = run_smarts_filter
+        query = params.smarts
+        operation = functools.partial(run_smarts_filter,
+                                      invert=params.invert)
+
     elif params.command == 'similarity':
-        coefficient = COEFFICIENTS[params.coefficeint]
+        coefficient = COEFFICIENTS[params.coefficient]
         descriptor = DESCRIPTORS[params.descriptor]
+        logging.info("Caching fingerprints")
+        query = [descriptor(mol) for mol in params.smiles]  # Enumerate all
+        source = ((mol, descriptor(mol)) for mol in source)  # Stream with original mol
         operation = functools.partial(run_similarity_filter,
                                       coefficient=coefficient,
                                       descriptor=descriptor,
+                                      invert=params.invert,
                                       threshold=params.threshold)
+
     matched = write_smiles_results(operation=operation,
-                                   smarts=params.smarts, 
-                                   source=params.input, 
-                                   dest=params.output)
+                                   needles=source, 
+                                   haystack=query,
+                                   dest=dest,
+                                   annotate=params.annotate)
     return matched == 0
 
 
@@ -172,22 +246,46 @@ if __name__ == '__main__':
     commands = parser.add_subparsers(dest='command')
     commands.add_parser('serve')
     cli_substruct = commands.add_parser('smarts')
-    cli_substruct.add_argument('smarts', help='SMARTS or SMILES pattern to match')
+    cli_substruct.add_argument('-v', '--invert', dest='invert', action='store_true', default=False,
+                               help='Only return those not matching all queries instead of those matching any')
+    cli_substruct.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
+                               help='Annotate results with match data')
+
+    cli_substruct_input = cli_substruct.add_mutually_exclusive_group(required=True)
+    cli_substruct_input.add_argument('-s', '--smarts', nargs='?',
+                                     type=lambda smarts: [smarts_reader(smarts)],
+                                     help='SMARTS or SMILES pattern to match')
+    cli_substruct_input.add_argument('-f', '--file', dest='smarts', nargs='?',
+                                     type=query_loader(smarts_reader),
+                                     help='File containing smarts patterns to match')
     cli_substruct.add_argument('input', nargs='?', default=sys.stdin, type=argparse.FileType('r'),
                                help='Source SMILES to search [default: stdin]')
     cli_substruct.add_argument('output', nargs='?', default=sys.stdout, type=argparse.FileType('w'), 
                                help='Destination to write matching SMILES to [default: stdout]')
+
     cli_similarity = commands.add_parser('similarity')
-    cli_similarity.add_argument('smiles', help='SMILES pattern to match')
+    cli_similarity.add_argument('-v', '--invert', dest='invert', action='store_true', default=False,
+                                help='Only return those not matching all queries instead of those matching any')
+    cli_similarity.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
+                               help='Annotate results with match data')
     cli_similarity.add_argument('-t', '--threshold', type=float, 
                                 help='Similarity threshold to match')
     cli_similarity.add_argument('-c', '--coefficient', nargs='?', choices=COEFFICIENTS.keys(), default='tanimoto',
                                 help='Similarity measure to use [default: %(default)s]')
     cli_similarity.add_argument('-d', '--descriptor', nargs='?', choices=DESCRIPTORS.keys(), default='path',
                                 help='Fingerprint (descriptor) to use [default: %(default)s]')
-    cli_similarity.add_argument('input', nargs='?', default=sys.stdin, type=argparse.FileType('r'),
+    cli_similarity_input = cli_similarity.add_mutually_exclusive_group(required=True)
+    cli_similarity_input.add_argument('-s', '--smiles', nargs='?',
+                                      type=lambda smiles: [smiles_reader(smiles)],
+                                      help='SMILES to generate fingerprints from')
+    cli_similarity_input.add_argument('-f', '--file', dest='smiles', nargs='?',
+                                      type=query_loader(smiles_reader), 
+                                      help='File containing smiles patterns to generate finterprints from')
+    cli_similarity.add_argument('input', nargs='?', 
+                                default=query_loader(smiles_reader, wrap=iter)('-'),
+                                type=query_loader(smiles_reader),
                                 help='Source SMILES to search [default: stdin]')
-    cli_similarity.add_argument('output', nargs='?', default=sys.stdout, type=argparse.FileType('w'), 
+    cli_similarity.add_argument('output', nargs='?', default='-', type=str, 
                                help='Destination to write matching SMILES to [default: stdout]')
     params = parser.parse_args()
     if params.command == 'serve':
