@@ -27,6 +27,7 @@ from rdkit.Chem import (
     EditableMol,
     MolFromSmarts,
     MolFromSmiles,
+    MolToSmiles,
     RDKFingerprint, 
     ReplaceSidechains,
     SmilesWriter,
@@ -57,7 +58,9 @@ COEFFICIENTS = {
 def mol_parse(it, parser=MolFromSmiles):
     for num, line in enumerate(it, start=1):
         try:
-            smiles, cid = str(line).split()[:2]
+            tokens = str(line).split()
+            tokens.append(str(num))
+            smiles, cid = tokens[:2]
             if not smiles:
                 raise ValueError("No acceptable input to parse")
             mol = parser(smiles)
@@ -67,11 +70,12 @@ def mol_parse(it, parser=MolFromSmiles):
             else:
                 raise ValueError("Parsing failed to yield a result")
         except Exception as e:
+            cid = cid or ''
             logging.warning("Failed to parse/load ${:d}: {cid}. Reason: {!r}".format(num, cid, e))
 
 
 def get_matching_parts(mol, *matches):
-    indices = range(mol.GetNumAtoms())
+    indices = reversed(range(mol.GetNumAtoms()))
     for match in matches:
         match = set(match)
         part = EditableMol(mol)
@@ -85,12 +89,12 @@ def run_smarts_filter(needles, haystack, invert=False, annotate=False):
     for needle in needles:
         if annotate:
             for hay in haystack:
-                matches = needle.GetSubstuctMatches(hay, useChirality=True)
+                matches = needle.GetSubstructMatches(hay, useChirality=True)
                 if matches:
                     matching_parts = get_matching_parts(needle, *matches)
-                    matching_smiles = [MolToSmiles(part, isomericSmiles=True) for part in matching_pargs]
+                    matching_smiles = [MolToSmiles(part, isomericSmiles=True) for part in matching_parts]
                     annotation = ';'.join(matching_smiles)
-                    needle.SetProp('match', annotaion)
+                    needle.SetProp('match', annotation)
                     yield needle
                 elif invert:
                     needle.SetProp('match', annotaion)
@@ -245,6 +249,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest='command')
     commands.add_parser('serve')
+
     cli_substruct = commands.add_parser('smarts')
     cli_substruct.add_argument('-v', '--invert', dest='invert', action='store_true', default=False,
                                help='Only return those not matching all queries instead of those matching any')
@@ -258,9 +263,11 @@ if __name__ == '__main__':
     cli_substruct_input.add_argument('-f', '--file', dest='smarts', nargs='?',
                                      type=query_loader(smarts_reader),
                                      help='File containing smarts patterns to match')
-    cli_substruct.add_argument('input', nargs='?', default=sys.stdin, type=argparse.FileType('r'),
+    cli_substruct.add_argument('input', nargs='?', 
+                               default=query_loader(smiles_reader, wrap=iter)('-'),
+                               type=query_loader(smiles_reader),
                                help='Source SMILES to search [default: stdin]')
-    cli_substruct.add_argument('output', nargs='?', default=sys.stdout, type=argparse.FileType('w'), 
+    cli_substruct.add_argument('output', nargs='?', default='-', type=str, 
                                help='Destination to write matching SMILES to [default: stdout]')
 
     cli_similarity = commands.add_parser('similarity')
