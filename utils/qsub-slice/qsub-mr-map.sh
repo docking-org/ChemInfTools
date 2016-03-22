@@ -54,6 +54,7 @@ fi
 
 if [ -z "${TASK_DIR}" ]; then
 	TASK_DIR="${SCRATCH_DIR}/${TASK_NAME}"
+	TASK_DIR="${TASK_DIR}-${JOB_ID}.${SGE_TASK_ID}"  # For extra annotation
 fi
 
 if [ "${OUTPUT_METHOD}" == "-" ] ; then
