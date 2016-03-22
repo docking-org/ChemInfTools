@@ -34,6 +34,7 @@ from rdkit.Chem import (
 )
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import (
+    ExplicitBitVect,
     BulkTanimotoSimilarity, 
     BulkDiceSimilarity,
     BulkTverskySimilarity,
@@ -45,6 +46,7 @@ DEBUG = True
 DESCRIPTORS = {
     'path': RDKFingerprint,
     'ecfp4': lambda mol: GetMorganFingerprintAsBitVect(mol, radius=2),
+    'zinc': lambda mol: GetMorganFingerprintAsBitVect(mol, radius=2, nBits=512),
 }
 
 
@@ -64,14 +66,26 @@ def mol_parse(it, parser=MolFromSmiles):
             if not smiles:
                 raise ValueError("No acceptable input to parse")
             mol = parser(smiles)
-            if mol is not None:
-                mol.SetProp('_Name', cid)
+            if mol is not None and cid is not None:
+                if hasattr(mol, 'SetProp'):
+                    mol.SetProp('_Name', cid)
                 yield mol
             else:
                 raise ValueError("Parsing failed to yield a result")
         except Exception as e:
             cid = cid or ''
-            logging.warning("Failed to parse/load ${:d}: {cid}. Reason: {!r}".format(num, cid, e))
+            logging.warning("Failed to parse/load ${:d}: {}. Reason: {!r}".format(num, cid, e))
+
+
+def base64_to_bfp(b64):
+    packed = [ord(c) for c in b64.decode("base64")]
+    unpacked = ''.join('{:08b}'.format(i) for i in packed)
+    n = len(unpacked)
+    on_bits = [idx for idx, val in enumerate(unpacked) if val == '1']
+    bfp = ExplicitBitVect(n)
+    bfp.SetBitsFromList(on_bits)
+    return bfp
+
 
 
 def get_matching_parts(mol, *matches):
@@ -103,11 +117,18 @@ def run_smarts_filter(needles, haystack, invert=False, annotate=False):
             yield needle
 
 
-def run_similarity_filter(needles, haystack, coefficient, descriptor, threshold, invert=False, annotate=False):
+def run_similarity_filter(needles, haystack, coefficient, descriptor, threshold, 
+                          invert=False, 
+                          annotate=False, 
+                          return_matches=False):
     for needle_mol, needle_fp in needles:
         similarities = coefficient(needle_fp, haystack)
         matches = (similarity >= threshold for similarity in similarities)
-        if not any(matches) == invert:
+        if return_matches:
+            for idx, match in enumerate(matches):
+                if match != invert:
+                    yield idx
+        elif not any(matches) == invert:
             if annotate:
                 annotation = max(similarities)
                 needle_mol.SetProp('match', '{:0.2f}'.format(annotation))
@@ -141,8 +162,19 @@ def query_loader(parser, wrap=list, mode='r', reader_cls=argparse.FileType):
     reader = reader_cls(mode)
 
     def loader(path):
+        line_parser = parser
+        if isinstance(line_parser, tuple):
+            default, line_parser = line_parser
+        else:
+            default = None
+        if isinstance(line_parser, dict):
+            base, ext = os.path.splitext(path)
+            try:
+                line_parser = line_parser[ext]
+            except KeyError:
+                line_parser = line_parser[default]
         source = reader(path)
-        mols = mol_parse(source, parser=parser)
+        mols = mol_parse(source, parser=line_parser)
         mols = wrap(mols)
         return mols
 
@@ -163,6 +195,11 @@ def fp_reader(smiles, descriptor):
     mol = smiles_reader(smiles)
     fp = descriptor(mol)
     return mol
+
+
+def base64_fp_reader(line, **kwargs):
+    fp = base64_to_bfp(line)
+    return fp
 
 
 app = Flask(__name__)
@@ -229,7 +266,9 @@ def main(params):
         coefficient = COEFFICIENTS[params.coefficient]
         descriptor = DESCRIPTORS[params.descriptor]
         logging.info("Caching fingerprints")
-        query = [descriptor(mol) for mol in params.smiles]  # Enumerate all
+        query = [h if isinstance(h, ExplicitBitVect)
+                 else descriptor(h) 
+                 for h in params.haystack]  # Enumerate all
         source = ((mol, descriptor(mol)) for mol in source)  # Stream with original mol
         operation = functools.partial(run_similarity_filter,
                                       coefficient=coefficient,
@@ -247,6 +286,7 @@ def main(params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', action='store_true', default=False)
     commands = parser.add_subparsers(dest='command')
     commands.add_parser('serve')
 
@@ -273,6 +313,8 @@ if __name__ == '__main__':
     cli_similarity = commands.add_parser('similarity')
     cli_similarity.add_argument('-v', '--invert', dest='invert', action='store_true', default=False,
                                 help='Only return those not matching all queries instead of those matching any')
+    cli_similarity.add_argument('-C', '--count', dest='count', action='store_true', default=False,
+                                help='Return counts for eacy query molecule')
     cli_similarity.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
                                help='Annotate results with match data')
     cli_similarity.add_argument('-t', '--threshold', type=float, 
@@ -282,19 +324,24 @@ if __name__ == '__main__':
     cli_similarity.add_argument('-d', '--descriptor', nargs='?', choices=DESCRIPTORS.keys(), default='path',
                                 help='Fingerprint (descriptor) to use [default: %(default)s]')
     cli_similarity_input = cli_similarity.add_mutually_exclusive_group(required=True)
-    cli_similarity_input.add_argument('-s', '--smiles', nargs='?',
+    cli_similarity_input.add_argument('-s', '--smiles', dest='haystack', nargs='?',
                                       type=lambda smiles: [smiles_reader(smiles)],
                                       help='SMILES to generate fingerprints from')
-    cli_similarity_input.add_argument('-f', '--file', dest='smiles', nargs='?',
-                                      type=query_loader(smiles_reader), 
-                                      help='File containing smiles patterns to generate finterprints from')
+    cli_similarity_input.add_argument('-f', '--file', dest='haystack', nargs='?',
+                                      type=query_loader(('.smi', {
+                                          '.smi': smiles_reader,
+                                          '.b64fp': base64_fp_reader,
+                                      }), wrap=iter), 
+                                      help='File containing haystack patterns to generate finterprints from')
     cli_similarity.add_argument('input', nargs='?', 
                                 default=query_loader(smiles_reader, wrap=iter)('-'),
-                                type=query_loader(smiles_reader),
+                                type=query_loader(smiles_reader, wrap=iter),
                                 help='Source SMILES to search [default: stdin]')
     cli_similarity.add_argument('output', nargs='?', default='-', type=str, 
                                help='Destination to write matching SMILES to [default: stdout]')
     params = parser.parse_args()
+    if params.debug:
+        logging.basicConfig(level=logging.DEBUG)
     if params.command == 'serve':
         sys.exit(app.run(host='0.0.0.0', port=8081, debug=DEBUG))
     else:
