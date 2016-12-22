@@ -69,6 +69,9 @@ def mol_parse(it, parser=MolFromSmiles):
             if mol is not None and cid is not None:
                 if hasattr(mol, 'SetProp'):
                     mol.SetProp('_Name', cid)
+                    extra_props = tokens[:2]
+                    for idx, extra_prop in enumerate(extra_props, start=1):
+                        mol.SetProp('ExtraProp{0}'.format(idx), extra_prop)
                 yield mol
             else:
                 raise ValueError("Parsing failed to yield a result")
@@ -148,11 +151,15 @@ def stream_smiles_results(operation, query, source, annotate=False):
         yield buf.getvalue()
         
 
-def write_smiles_results(operation, needles, haystack, dest, annotate=False):
+def write_smiles_results(operation, needles, haystack, dest, annotate=False, extra_props=0):
     filtered = operation(needles, haystack, annotate=annotate)
     results = SmilesWriter(dest, isomericSmiles=True, includeHeader=False)
+    props = []
     if annotate:
-        results.SetProps(['match'])
+        props.append('match')
+    if extra_props:
+        props.extend('ExtraProp{0}'.format(i+1) for i in range(extra_props))
+    results.SetProps(props)
     for result in filtered:
         results.write(result)
     return results.NumMols()
@@ -280,7 +287,8 @@ def main(params):
                                    needles=source, 
                                    haystack=query,
                                    dest=dest,
-                                   annotate=params.annotate)
+                                   annotate=params.annotate,
+                                   extra_props=params.num_extra_props)
     return matched == 0
 
 
@@ -295,6 +303,8 @@ if __name__ == '__main__':
                                help='Only return those not matching all queries instead of those matching any')
     cli_substruct.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
                                help='Annotate results with match data')
+    cli_substruct.add_argument('-N', '--num-extra-props', dest='num_extra_props', type=int, default=0,
+                               help='Include <N> extra columns from input')
 
     cli_substruct_input = cli_substruct.add_mutually_exclusive_group(required=True)
     cli_substruct_input.add_argument('-s', '--smarts', nargs='?',
@@ -317,6 +327,8 @@ if __name__ == '__main__':
                                 help='Return counts for eacy query molecule')
     cli_similarity.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
                                help='Annotate results with match data')
+    cli_similarity.add_argument('-N', '--num-extra-props', dest='num_extra_props', type=int, default=0,
+                               help='Include <N> extra columns from input')
     cli_similarity.add_argument('-t', '--threshold', type=float, 
                                 help='Similarity threshold to match')
     cli_similarity.add_argument('-c', '--coefficient', nargs='?', choices=COEFFICIENTS.keys(), default='tanimoto',
