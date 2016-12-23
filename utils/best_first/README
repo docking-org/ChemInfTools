@@ -1,0 +1,17 @@
+
+
+
+ #cp /mnt/nfs/work/tbalius/Large_databases/clustering_2A_data/test2/tc0p6.fp .
+ #head -5000 /mnt/nfs/work/tbalius/Large_databases/clustering_2A_data/all_comps.scores.sort.smi >! 5000.smi
+ rm *.o
+ gcc -c fast_tanimoto.c -o fast_tanimoto.o
+ gcc -c best_first.c -o best_first.o
+ gcc -c main.c -std=c99 -o main.o
+ gcc -o best_first_clustering main.o fast_tanimoto.o best_first.o -lm
+
+## TODO:
+ # add in a option for max number of molecules to be clustered.
+ # Or max rank to be clustered.
+ # 
+
+
