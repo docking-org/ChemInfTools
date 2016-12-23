@@ -176,11 +176,18 @@ def run_similarity_clustering(needles,
         for cluster_idx, members in enumerate(clusters):
             num_members = len(members)
             if num_members > 0:  # ???
-                cluster_centroid = needles[members[0]]
-                centroid_mol = cluster_centroid[0]
-                if annotate:
-                    centroid_mol.SetProp('match', '{0:d}'.format(num_members))
-                yield centroid_mol
+                if return_matches:
+                    for cluster_mol_idx in members:
+                        cluster_mol, cluster_fp = needles[cluster_mol_idx]
+                        if annotate:
+                            cluster_mol.SetProp('match', '{0}'.format(cluster_idx))
+                        yield cluster_mol
+                else:
+                    cluster_centroid = needles[members[0]]
+                    centroid_mol = cluster_centroid[0]
+                    if annotate:
+                        centroid_mol.SetProp('match', '{0:d}'.format(num_members))
+                    yield centroid_mol
     elif approach == 'cassidy':
         try:
             first_mol, first_fp = next(needles)
@@ -199,14 +206,21 @@ def run_similarity_clustering(needles,
                 if max_similarity < threshold:
                     fingerprints.append(needle_fp)
                     centroids.append(needle_mol)
+                    most_similar_idx = len(sizes)
                     sizes.append(1)
                 else:
                     sizes[most_similar_idx] += 1
 
-            for cluster_idx, centroid in enumerate(centroids):
-                size = sizes[cluster_idx]
-                centroid.SetProp('match', '{0:d}'.format(size))
-                yield centroid
+                if return_matches:
+                    if annotate:
+                        needle_mol.SetProp('match', '{0:d}'.format(most_similar_idx))
+                    yield needle_mol
+
+            if not return_matches:
+                for cluster_idx, centroid in enumerate(centroids):
+                    size = sizes[cluster_idx]
+                    centroid.SetProp('match', '{0:d}'.format(size))
+                    yield centroid
 
         elif first_mol is not None:
             yield first_mol
@@ -372,7 +386,8 @@ def main(params):
         operation = functools.partial(run_similarity_clustering,
                                       coefficient=coefficient,
                                       approach=params.approach,
-                                      threshold=params.threshold)
+                                      threshold=params.threshold,
+                                      return_matches=params.print_all)
 
     matched = write_smiles_results(operation=operation,
                                    needles=source, 
@@ -451,12 +466,16 @@ if __name__ == '__main__':
                              help='Return counts for eacy query molecule')
     cli_cluster.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
                              help='Annotate results with match data')
+    cli_cluster.add_argument('-r', '--print-all', dest='print_all', action='store_true', default=False,
+                             help='Return all values instead of just centroids')
     cli_cluster.add_argument('-t', '--threshold', type=float, 
                              help='Similarity threshold to match')
     cli_cluster.add_argument('-c', '--coefficient', nargs='?', choices=COEFFICIENTS.keys(), default='tanimoto',
                              help='Similarity measure to use [default: %(default)s]')
     cli_cluster.add_argument('-d', '--descriptor', nargs='?', choices=DESCRIPTORS.keys(), default='path',
                              help='Fingerprint (descriptor) to use [default: %(default)s]')
+    cli_cluster.add_argument('-N', '--num-extra-props', dest='num_extra_props', type=int, default=0,
+                             help='Include <N> extra columns from input')
     cli_cluster.add_argument('input', nargs='?', 
                              default=query_loader(smiles_reader, wrap=iter)('-'),
                              type=query_loader(smiles_reader, wrap=iter),
