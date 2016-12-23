@@ -11,6 +11,8 @@ import os
 import sys
 import tempfile
 
+import numpy as np
+
 from werkzeug import secure_filename
 from flask import (
     abort,
@@ -39,6 +41,7 @@ from rdkit.DataStructs import (
     BulkDiceSimilarity,
     BulkTverskySimilarity,
 )
+from rdkit.ML.Cluster import Butina
 
 DEBUG = True
 
@@ -56,9 +59,15 @@ COEFFICIENTS = {
     'tversky': lambda x, ys, a, b, *args: BulkTverskySimilarity(x, ys, a, b), 
 }
 
+CLUSTERING_APPROACHES = [
+    'butina',
+    'cassidy',
+]
+
 
 def mol_parse(it, parser=MolFromSmiles):
     for num, line in enumerate(it, start=1):
+        cid = str(num)
         try:
             tokens = str(line).split()
             tokens.append(str(num))
@@ -85,7 +94,6 @@ def base64_to_bfp(b64):
     bfp = ExplicitBitVect(n)
     bfp.SetBitsFromList(on_bits)
     return bfp
-
 
 
 def get_matching_parts(mol, *matches):
@@ -122,17 +130,90 @@ def run_similarity_filter(needles, haystack, coefficient, descriptor, threshold,
                           annotate=False, 
                           return_matches=False):
     for needle_mol, needle_fp in needles:
-        similarities = coefficient(needle_fp, haystack)
-        matches = (similarity >= threshold for similarity in similarities)
+        similarities = np.array(coefficient(needle_fp, haystack))
         if return_matches:
+            matches = (similarity >= threshold for similarity in similarities)
             for idx, match in enumerate(matches):
                 if match != invert:
                     yield idx
-        elif not any(matches) == invert:
-            if annotate:
-                annotation = max(similarities)
-                needle_mol.SetProp('match', '{:0.2f}'.format(annotation))
-            yield needle_mol
+        else:
+            max_idx = np.argmax(similarities)
+            max_similarity = similarities[max_idx]
+            if (max_similarity >= threshold) != invert:
+                needle_mol.SetProp('match', '{0:0.2f}'.format(max_similarity))
+                yield needle_mol
+
+
+def run_similarity_clustering(needles, 
+                              haystack,  # Haystack for future use (should be None for now)
+                              coefficient, 
+                              threshold, 
+                              approach, 
+                              annotate=False, 
+                              return_matches=False):
+    if approach == 'butina':
+        needles = list(needles)  # Expand all to build distance matrix
+        num_needles = len(needles)
+        distances = np.empty((num_needles * (num_needles-1)) / 2)
+        offset = 0
+        # Build similarity matrix
+        for needle_idx, (needle_mol, needle_fp) in enumerate(needles):
+            other_fps = [other_fp for other_mol, other_fp in needles[:needle_idx]]
+            num_others = len(other_fps)
+            similarities = coefficient(needle_fp, other_fps)
+            distances[offset:offset+num_others] = similarities
+            offset += num_others
+        distances = 1 - distances
+        clusters = Butina.ClusterData(
+            distances,
+            num_needles,
+            isDistData=True,
+            distThresh=1-threshold
+        )
+        for cluster_idx, members in enumerate(clusters):
+            num_members = len(members)
+            if num_members > 0:  # ???
+                cluster_centroid = needles[members[0]]
+                centroid_mol = cluster_centroid[0]
+                if annotate:
+                    centroid_mol.SetProp('match', '{0:d}'.format(num_members))
+                yield centroid_mol
+    elif approach == 'cassidy':
+        try:
+            first_mol, first_fp = next(needles)
+            centroids = [first_mol]
+            fingerprints = [first_fp]
+            sizes = [1]
+        except StopIteration:
+            first_mol = None
+
+        # Short circuit if we don't care about counts
+        if annotate:
+            for needle_mol, needle_fp in needles:            
+                similarities = np.array(coefficient(needle_fp, fingerprints))
+                most_similar_idx = np.argmax(similarities)
+                max_similarity = similarities[most_similar_idx]
+                if max_similarity < threshold:
+                    fingerprints.append(needle_fp)
+                    centroids.append(needle_mol)
+                    sizes.append(1)
+                else:
+                    sizes[most_similar_idx] += 1
+
+            for cluster_idx, centroid in enumerate(centroids):
+                size = sizes[cluster_idx]
+                centroid.SetProp('match', '{0:d}'.format(size))
+                yield centroid
+
+        elif first_mol is not None:
+            yield first_mol
+            for needle_mol, needle_fp in needles:            
+                similarities = np.array(coefficient(needle_fp, fingerprints))
+                most_similar_idx = np.argmax(similarities)
+                max_similarity = similarities[most_similar_idx]
+                if max_similarity < threshold:
+                    fingerprints.append(needle_fp)
+                    yield needle_mol
 
 
 def stream_smiles_results(operation, query, source, annotate=False):
@@ -276,6 +357,16 @@ def main(params):
                                       invert=params.invert,
                                       threshold=params.threshold)
 
+    elif params.command == 'cluster':
+        coefficient = COEFFICIENTS[params.coefficient]
+        descriptor = DESCRIPTORS[params.descriptor]
+        source = ((mol, descriptor(mol)) for mol in source)  # Stream with original mol
+        query = None  # Future use (predefined clusters)
+        operation = functools.partial(run_similarity_clustering,
+                                      coefficient=coefficient,
+                                      approach=params.approach,
+                                      threshold=params.threshold)
+
     matched = write_smiles_results(operation=operation,
                                    needles=source, 
                                    haystack=query,
@@ -339,6 +430,28 @@ if __name__ == '__main__':
                                 help='Source SMILES to search [default: stdin]')
     cli_similarity.add_argument('output', nargs='?', default='-', type=str, 
                                help='Destination to write matching SMILES to [default: stdout]')
+
+    cli_cluster = commands.add_parser('cluster')
+    cli_cluster.add_argument('-m', '--approach', dest='approach', default='budina',
+                             choices=CLUSTERING_APPROACHES,
+                             help='Clustering approach to use (cassidy clustering works best for massive datasets)')
+    cli_cluster.add_argument('-C', '--count', dest='count', action='store_true', default=False,
+                             help='Return counts for eacy query molecule')
+    cli_cluster.add_argument('-a', '--annotate', dest='annotate', action='store_true', default=False,
+                             help='Annotate results with match data')
+    cli_cluster.add_argument('-t', '--threshold', type=float, 
+                             help='Similarity threshold to match')
+    cli_cluster.add_argument('-c', '--coefficient', nargs='?', choices=COEFFICIENTS.keys(), default='tanimoto',
+                             help='Similarity measure to use [default: %(default)s]')
+    cli_cluster.add_argument('-d', '--descriptor', nargs='?', choices=DESCRIPTORS.keys(), default='path',
+                             help='Fingerprint (descriptor) to use [default: %(default)s]')
+    cli_cluster.add_argument('input', nargs='?', 
+                             default=query_loader(smiles_reader, wrap=iter)('-'),
+                             type=query_loader(smiles_reader, wrap=iter),
+                             help='Source SMILES to search [default: stdin]')
+    cli_cluster.add_argument('output', nargs='?', default='-', type=str, 
+                             help='Destination to write matching SMILES to [default: stdout]')
+
     params = parser.parse_args()
     if params.debug:
         logging.basicConfig(level=logging.DEBUG)
