@@ -171,7 +171,8 @@ def run_similarity_clustering(needles,
             distances,
             num_needles,
             isDistData=True,
-            distThresh=1-threshold
+            distThresh=1-threshold,
+            reordering=True
         )
         for cluster_idx, members in enumerate(clusters):
             num_members = len(members)
