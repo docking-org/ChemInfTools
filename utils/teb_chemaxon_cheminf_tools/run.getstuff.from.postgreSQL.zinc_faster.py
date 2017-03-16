@@ -18,6 +18,10 @@ import sys,os,binascii
 #    n = len(hex_string)
 #    return binascii.unhexlify(hex_string.zfill(n + (n & 1)))
 
+if len(sys.argv) != 3:
+   print "wrong number of inputs:\n (1) input file with list of zinc id\n (2) output file name\n"
+   exit()
+
 inputfile  = sys.argv[1]
 outputfile = sys.argv[2]
 

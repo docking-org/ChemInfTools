@@ -63,7 +63,7 @@ def mat_to_vector(Mat):
 
     return X,Xvec
 
-def get_cluster(X,labels,clusttypethreshold,dirname):
+def get_cluster(X,labels,clusttype,threshold,dirname):
     print "in function get_cluster"
     if len(X) != len(labels):
        print "len(X) != len(labels)"
@@ -281,9 +281,11 @@ ax1 = fig.add_axes([0.09,0.1,0.2,0.6])
 ##Z1 = sch.dendrogram(Y, orientation='right')
 Z1 = sch.dendrogram(Y1, orientation='right',color_threshold=threshold)
 matplotlib.pyplot.plot([threshold,threshold],[0,10*m],'k--') # draws a datshed line where dendogram is cut.
+
 ##help(sch.dendrogram)
 #ax1.set_xticks([])
 ax1.set_yticks([])
+ax1.invert_xaxis()
 ##exit()
 ##print ax1.get_ylim()
 ##ax1.set_ylim(-1, n)
