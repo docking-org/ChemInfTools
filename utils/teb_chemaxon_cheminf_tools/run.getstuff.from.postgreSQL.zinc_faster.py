@@ -32,6 +32,7 @@ file1.close()
 file2 = open(outputfile,'w')
 
 flush_size = 5000 # this is how meny zinc codes we want to quiery at one time. 
+#flush_size = 1 # this is how meny zinc codes we want to quiery at one time. 
                  # and then write to file
 count = 0
 countnl = 0

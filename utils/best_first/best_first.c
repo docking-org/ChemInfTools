@@ -118,7 +118,7 @@ void best_first(uint16_t *fprintA, int *countA, int lenA,  int db_len, char **na
          //printf("nl=%d,il=%d\n",newlist[i],indexlist[i]);
          newlist[i] = -1;
     }
-    listsize = count-1;
+    listsize = count;
     clustercount++;
   }
   // deallocate memory for these arrays because malloc is used.
