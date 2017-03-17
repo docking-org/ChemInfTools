@@ -47,6 +47,7 @@ SUBMISSION OPTIONs:
 	-a|--qsub-args - A *quoted string* of arguments to be passed to qsub
 	-q|--queue - The name of the queue to submit to
 	-N|--name - The job name to submit with
+	-P|--project - The job project to submit with
 	-M|-tc|--max-running-tasks - The maximum number of tasks to run at a time for the job
 	-R|--dont-read-qsub-args - Skip extracting additional queing arguments from the submission script
 
@@ -73,6 +74,7 @@ LINES_PER_TASK=100
 MAX_RUNNING_TASKS=""
 SUFFIX_LENGTH=2
 JOB_NAME=""
+JOB_PROJECT=""
 QUEUE_NAME=""
 QSUB_ARGS=()
 READ_FROM_SCRIPT="yes"
@@ -165,7 +167,7 @@ while [[ $# > 0 ]] ; do
 
 		# Queing Control
 		-a|--qsub-args)
-			QSUB_ARGS=( ${2[@]} )
+			QSUB_ARGS=( ${2} )
 			shift 2
 			;;
 		-q|--queue)
@@ -174,6 +176,10 @@ while [[ $# > 0 ]] ; do
 			;;
 		-N|--name)
 			JOB_NAME="${2}"
+			shift 2
+			;;
+		-P|--project)
+			JOB_PROJECT="${2}"
 			shift 2
 			;;
 		-M|--max-running-tasks|-tc)
@@ -331,6 +337,10 @@ else
 	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -N map"
 	QSUB_REDUCE_ARGS="${QSUB_REDUCE_ARGS[@]} -N reduce"
 fi
+if [ ! -z "${JOB_PROJECT}" ] ; then
+	QSUB_MAP_ARGS="${QSUB_MAP_ARGS[@]} -P ${JOB_PROJECT}"
+	QSUB_REDUCE_ARGS="${QSUB_REDUCE_ARGS[@]} -P ${JOB_PROJECT}"
+fi
 QSUB_MAP_ARGS=( ${QSUB_MAP_ARGS} )
 QSUB_REDUCE_ARGS=( ${QSUB_REDUCE_ARGS} )
 
@@ -363,8 +373,10 @@ fi
 
 if [ -z "${SKIP_SUBMISSION}" ] ; then
 	echo "SGE Job (map):    ${MAP_JOB_ID}"
+	echo ${MAP_JOB_ID} > "${JOB_DIR}/map.jid"
 	if [ ! -z "${REDUCE_JOB_ID}" ] ; then
 		echo "SGE Job (reduce): ${REDUCE_JOB_ID}"
+		echo ${REDUCE_JOB_ID} > "${JOB_DIR}/reduce.jid"
 	fi
 fi
 

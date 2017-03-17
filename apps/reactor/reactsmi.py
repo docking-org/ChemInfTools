@@ -52,7 +52,7 @@ def smiles_reaction_matrix(smarts, *sources, **kwargs):
         product_id = '.'.join(cids)
         for mol in product:
             smiles = MolToSmiles(mol, isomericSmiles=True)
-            yield sep.join((smiles, product_id))
+            yield sep.join((smiles, product_id))+"\n"
 
 if Flask is not None:
     app = Flask(__name__)
