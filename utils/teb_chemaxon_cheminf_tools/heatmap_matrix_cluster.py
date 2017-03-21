@@ -5,10 +5,14 @@
 ## This was adapted from the web:
 ## http://stackoverflow.com/questions/2982929/plotting-results-of-hierarchical-clustering-ontop-of-a-matrix-of-data-in-python
 
+import matplotlib  # must import first
+matplotlib.use('Agg')  # allows you to not have an x-server running
+#these lines must be first, if pylab is imported first it ruins this
+
 import sys, os
 import copy
 import math
-import matplotlib
+#import matplotlib
 import scipy
 import numpy
 import pylab
@@ -240,6 +244,7 @@ def import_mat(matfilename):
          countline = countline + 1
      return X ,n,m
 
+pylab.matplotlib.use('Agg')
 
 ZERRO = 0.0
 
