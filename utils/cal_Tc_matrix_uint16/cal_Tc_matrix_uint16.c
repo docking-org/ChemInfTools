@@ -41,6 +41,7 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
   char filename[16];
   FILE *fp,*fp_;
   printf("Start\n");
+  //fflush( stdout );
 
   indexlistA = (int *)malloc(sizeof(int)*lenA);
   indexlistB = (int *)malloc(sizeof(int)*lenB);
@@ -63,7 +64,8 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
     
     fpA = &(fprintA[indexlistA[i]*db_len]); // index
     cntA = countA[indexlistA[i]]; // number of 1 in the binary string.
-    double tan_max = 0.0; // 
+    double tan_max = 0.0; //
+    char *zinc_id; 
  
     for (j = 0; j < listsizeB; j++) {
 
@@ -74,6 +76,7 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
  
        if (tan > tan_max){
           tan_max = tan;
+          zinc_id = namesB[indexlistB[j]]; 
           }
 
        /* Tc output */
@@ -86,7 +89,7 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
           //}   
        }
     //fprintf(fp, "\n");
-    fprintf(fp_, "%f\n", tan_max);
+    fprintf(fp_, "%f,%s\n", tan_max, zinc_id);
     }
     // close file
     //fclose(fp); 

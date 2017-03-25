@@ -243,14 +243,26 @@ void main(int argc, char *argv[]) {
   printf("count file2 = %s\n",filename_count2);
 
   fps1=fopen(filename_smi1, "r");
+  if (!fps1){
+     printf("%s cannot be opened.\n",filename_smi1);
+     exit(1);
+  } 
   size_smi1 = line_count(fps1); // get the number of fingerprints
   rewind(fps1); // go back to the begining
 
   fps2=fopen(filename_smi2, "r");
+  if (!fps2){
+     printf("%s cannot be opened.\n",filename_smi2);
+     exit(1);
+  } 
   size_smi2 = line_count(fps2); // get the number of fingerprints
   rewind(fps2); // go back to the begining
 
   fp1=fopen(filename1, "r");
+  if (!fp1){
+     printf("%s cannot be opened.\n",filename1);
+     exit(1);
+  } 
   //fp=fopen("tc0p6.fp","r");
   //size1 = line_count(fp1); // get the number of fingerprints
   //rewind(fp1); // go back to the begining
@@ -260,6 +272,10 @@ void main(int argc, char *argv[]) {
   //} 
 
   fp2=fopen(filename2, "r");
+  if (!fp2){
+     printf("%s cannot be opened.\n",filename2);
+     exit(1);
+  } 
   //fp=fopen("tc0p6.fp","r");
   //size2 = line_count(fp2); // get the number of fingerprints
   //rewind(fp2); // go back to the begining
@@ -327,6 +343,10 @@ void main(int argc, char *argv[]) {
   }
   fclose(fp1);
   fpc1 = fopen(filename_count1,"r");
+  if (!fpc1){
+     printf("%s cannot be opened.\n",filename_count1);
+     exit(1);
+  } 
   while(fgets(line, 2000, (FILE*) fpc1)) { // read in fingerprints from file
      fingerprints_one_count1[count2] = atoi(line);
      //process_str2int(line,2000,fingerprints_one_count1[count2],fpsize);
@@ -346,6 +366,10 @@ void main(int argc, char *argv[]) {
   }
   fclose(fp2);
   fpc2 = fopen(filename_count2,"r");
+  if (!fpc2){
+     printf("%s cannot be opened.\n",filename_count2);
+     exit(1);
+  } 
   while(fgets(line, 2000, (FILE*) fpc2)) { // read in fingerprints from file
      fingerprints_one_count2[count2] = atoi(line);
      //process_str2int(line,2000,fingerprints_one_count2[count2],fpsize);
