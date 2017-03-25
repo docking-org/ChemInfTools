@@ -338,7 +338,7 @@ void main(int argc, char *argv[]) {
 
   count = 0;
   count2 = 0;// this is for fingerprints_binary
-  fingerprints_one_count2 = (int *)malloc(size_smi1 * sizeof(int *));
+  fingerprints_one_count2 = (int *)malloc(size_smi2 * sizeof(int *));
   while(fgets(line, 2000, (FILE*) fp2)) { // read in fingerprints from file
      fingerprints_binary2[count] = (uint16_t) atoi(line);
      //process_str2uint16(line,2000,fingerprints_binary2[count],fpsize);
