@@ -13,7 +13,7 @@
 
 #include <math.h>
 #include "cal_Tc_matrix_uint16.h"
-#include "fast_tanimoto.h"
+#include "../common/fast_tanimoto.h"
 #include <stdio.h>
 
 // fprintA is the bunch of list of binarys concatanated together.

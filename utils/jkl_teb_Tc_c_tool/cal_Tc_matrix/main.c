@@ -1,7 +1,7 @@
 
 
 #include "cal_Tc_matrix.h"
-#include "fast_tanimoto.h"
+#include "../common/fast_tanimoto.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
