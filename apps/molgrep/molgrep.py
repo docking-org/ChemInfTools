@@ -34,6 +34,7 @@ from rdkit.Chem import (
     ReplaceSidechains,
     SmilesWriter,
 )
+from rdkit.Chem.AtomPairs.Pairs import GetAtomPairFingerprint
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import (
     ExplicitBitVect,
@@ -50,6 +51,7 @@ DESCRIPTORS = {
     'path': RDKFingerprint,
     'ecfp4': lambda mol: GetMorganFingerprintAsBitVect(mol, radius=2),
     'zinc': lambda mol: GetMorganFingerprintAsBitVect(mol, radius=2, nBits=512),
+    'apair': lambda mol: GetAtomPairFingerprint(mol)
 }
 
 
@@ -122,7 +124,7 @@ def run_smarts_filter(needles, haystack, invert=False, annotate=False):
                     needle.SetProp('match', annotation)
                     yield needle
                 elif invert:
-                    needle.SetProp('match', annotaion)
+                    needle.SetProp('match', annotation)
                     yield needle
         elif not any(needle.HasSubstructMatch(hay, useChirality=True) for hay in haystack) == invert:
             yield needle
