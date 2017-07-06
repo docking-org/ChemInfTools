@@ -5,31 +5,69 @@
     </head>
     <body>
         <h1>ZINC Binary SMARTS Reactor Utility</h1>
+        <h3>Reaction
+           <a href="http://zinc15dev.docking.org/reactions/{{ short_name }}" target="_blank">
+            {{ name | title  }}
+           </a>
+        </h3>
+
         <form action="/react" method="post" enctype="multipart/form-data">
             <fieldset>
-                <legend>Reaction Inputs</legend>
+
                 <div>
-                    <label for="reaction">
-                        Reaction SMARTS:
-                        <input name="reaction" id="reaction" placeholder="SMARTS Reaction (e.g. [C:1](=[O:2])O.[N:3]>>[C:1](=[O:2])[N:3] )" size="50">
+                    <label for="smarts1">
+                        Reagent1:
+                        <input name="smarts1" id="smarts1" placeholder="SMARTS" {% if smarts1 %} value={{ smarts1 }} {% endif %} type="text" size="100">
                     </label>
-                </div>
-                <div>
                     <label for="reactant1">
-                        Reactant 1:
+{#                        Reactant1:#}
                         <input name="reactant1" id="reactant1" type="file">
                     </label>
                 </div>
+
                 <div>
+                    <label for="smarts2">
+                        Reagent2:
+                        <input name="smarts2" id="smarts2" placeholder="SMARTS" {% if smarts2 %} value={{ smarts2 }} {% endif %} type="text" size="100">
+                    </label>
                     <label for="reactant2">
-                        Reactant 2:
+{#                        Reactant 2:#}
                         <input name="reactant2" id="reactant2" type="file">
                     </label>
                 </div>
+
                 <div>
-                    <input type="submit" value="React">
+                    <label for="smarts3">
+                        Reagent3:
+                        <input name="smarts3" id="smarts3" placeholder="SMARTS" {% if smarts3 %}  value={{ smarts3 }}  {% endif %} type="text" size="100">
+                    </label>
+                    <label for="reactant3">
+
+                        <input name="reactant3" id="reactant3" type="file">
+                    </label>
                 </div>
+
+                <div>
+                    <label for="product">
+                        Product   :
+                        <input name="product" id="product" placeholder="SMARTS" {% if product %} value={{ product }} {% endif %} type="text" size="50">
+                    </label>
+                </div>
+                <div>
+                    <label for="molW">
+                        MolW:
+                        <input name="molW" id="molW" value="400" type="number">
+                    </label>
+                    <label for="logP">
+                        LogP:
+                        <input name="logP" id="logP" value="4.0" type="number" step="0.1" >
+                    </label>
+                </div>
+
             </fieldset>
+                <div>
+                     <input type="submit" value="React">
+                </div>
         </form>
     </body>
 </html>
