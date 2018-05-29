@@ -21,7 +21,7 @@
 // lenA is the is the number of fingerprints in fprintA
 // db_len is the number of bit in one fingerprint (same for all fingerprint).  
 
-void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint16_t *fprintB, int *countB, int lenB, char **namesB, int db_len) {
+void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint16_t *fprintB, int *countB, int lenB, char **namesB, int db_len, char **prefix) {
 
   int i, j;                       /* Generic counters         */
   //double tan,maxtc;                     /* Tanimoto coefficient     */
@@ -40,6 +40,7 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
   int listsizeB = lenB;
   char filename[16];
   FILE *fp,*fp_;
+  char outputfile[50];
   printf("Start\n");
   //fflush( stdout );
 
@@ -58,14 +59,16 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
 
   /* Loop over fingerprints calculate tanimoto */
   //fp=fopen("Tc_matrix", "w");
-  fp_=fopen("Max_Tc_col","w");
-
+  sprintf(outputfile, "%s_max_TC.col",prefix);
+  fp_=fopen(outputfile,"w");
+  char *zinc_id_ori;
   for (i = 0; i < listsizeA; i++){ // while there are still molecules
     
     fpA = &(fprintA[indexlistA[i]*db_len]); // index
     cntA = countA[indexlistA[i]]; // number of 1 in the binary string.
     double tan_max = 0.0; //
-    char *zinc_id; 
+    char *zinc_id;
+    zinc_id_ori = namesA[indexlistA[i]];
  
     for (j = 0; j < listsizeB; j++) {
 
@@ -89,7 +92,7 @@ void cal_Tc_matrix(uint16_t *fprintA, int *countA, int lenA, char **namesA, uint
           //}   
        }
     //fprintf(fp, "\n");
-    fprintf(fp_, "%f,%s\n", tan_max, zinc_id);
+    fprintf(fp_, "%s,%f,%s\n",zinc_id_ori, tan_max, zinc_id);
     }
     // close file
     //fclose(fp); 

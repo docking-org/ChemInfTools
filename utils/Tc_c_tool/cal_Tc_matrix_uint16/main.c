@@ -205,25 +205,27 @@ void main(int argc, char *argv[]) {
   int namesize = 100; // size of the name in the smiles file.
   int fpsize = 1024;
   int fpbsize = 1024/16; // lenth of bits in binary array when fingerprint is converted to binary. 
-  int i,count,count2; 
+  int i,count,count2;
+  char prefix[100];
   //double tc_threshold; 
   //int maxclusters; 
 
-   if( argc == 7 ) {
+   if( argc == 8 ) {
       printf("The argument supplied are:\n (1) %s\n (2) %s \n (3) %s \n (4) %s\n (5) %s\n (6) %s\n", argv[1], argv[2], argv[3],argv[4],argv[5],argv[6]);
    }
-   else if( argc > 7 ) {
+   else if( argc > 8 ) {
       printf("Too many arguments supplied.\n");
       exit(1);
    }
    else {
-      printf("Two argument expected.\n");
+      printf("7 argument expected.\n");
       printf("(1) first fingerprint file.\n");
       printf("(2) first smiles file.\n");
       printf("(3) first count file.\n");
       printf("(4) second fingerprint file.\n");
       printf("(5) second smiles file.\n");
       printf("(6) second count file.\n");
+      printf("(7) prefix of the outputfile.\n");
       exit(1);
    }
 
@@ -235,12 +237,14 @@ void main(int argc, char *argv[]) {
   strcpy(filename2, argv[4]);
   strcpy(filename_smi2, argv[5]);
   strcpy(filename_count2, argv[6]);
+  strcpy(prefix, argv[7]);
   printf("figureprint file1 = %s\n",filename1);
   printf("smiles file1 = %s\n",filename_smi1);
   printf("count file1 = %s\n",filename_count1);
   printf("figureprint file2 = %s\n",filename2);
   printf("smiles file2 = %s\n",filename_smi2);
   printf("count file2 = %s\n",filename_count2);
+  printf("prefix = %s\n",prefix);
 
   fps1=fopen(filename_smi1, "r");
   if (!fps1){
@@ -378,7 +382,7 @@ void main(int argc, char *argv[]) {
   fclose(fpc2);
   
 
-  cal_Tc_matrix(fingerprints_binary1, fingerprints_one_count1, size_smi1, names1, fingerprints_binary2, fingerprints_one_count2, size_smi2, names2, fpbsize);
+  cal_Tc_matrix(fingerprints_binary1, fingerprints_one_count1, size_smi1, names1, fingerprints_binary2, fingerprints_one_count2, size_smi2, names2, fpbsize, prefix);
    
   // clean up arrays. 
   for (i=0; i<size1; i++){
