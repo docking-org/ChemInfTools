@@ -22,6 +22,6 @@ all: best_first/best_first.c best_first/best_first.h best_first/main.c best_firs
 
 clean: 
 	$(RM) */*.o 
-	$(RM) best_first/best_first_clustering convert_fp_2_fp_in_16unit/convert_fp_2_fp_in_16unit cal_Tc_matrix_uint16/cal_Tc_matrix_uint16 cal_Tc_matrix/cal_Tc_matrix 
+	$(RM) best_first/best_first_clustering best_first_clustering/best_first_clustering best_first_clustering_uint16/best_first_clustering convert_fp_2_fp_in_16unit/convert_fp_2_fp_in_16unit cal_Tc_matrix_uint16/cal_Tc_matrix_uint16 cal_Tc_matrix/cal_Tc_matrix 
 
 
