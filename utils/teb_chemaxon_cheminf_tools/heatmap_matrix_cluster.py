@@ -5,10 +5,14 @@
 ## This was adapted from the web:
 ## http://stackoverflow.com/questions/2982929/plotting-results-of-hierarchical-clustering-ontop-of-a-matrix-of-data-in-python
 
+import matplotlib  # must import first
+matplotlib.use('Agg')  # allows you to not have an x-server running
+#these lines must be first, if pylab is imported first it ruins this
+
 import sys, os
 import copy
 import math
-import matplotlib
+#import matplotlib
 import scipy
 import numpy
 import pylab
@@ -63,7 +67,7 @@ def mat_to_vector(Mat):
 
     return X,Xvec
 
-def get_cluster(X,labels,clusttypethreshold,dirname):
+def get_cluster(X,labels,clusttype,threshold,dirname):
     print "in function get_cluster"
     if len(X) != len(labels):
        print "len(X) != len(labels)"
@@ -240,6 +244,7 @@ def import_mat(matfilename):
          countline = countline + 1
      return X ,n,m
 
+pylab.matplotlib.use('Agg')
 
 ZERRO = 0.0
 
@@ -281,9 +286,11 @@ ax1 = fig.add_axes([0.09,0.1,0.2,0.6])
 ##Z1 = sch.dendrogram(Y, orientation='right')
 Z1 = sch.dendrogram(Y1, orientation='right',color_threshold=threshold)
 matplotlib.pyplot.plot([threshold,threshold],[0,10*m],'k--') # draws a datshed line where dendogram is cut.
+
 ##help(sch.dendrogram)
 #ax1.set_xticks([])
 ax1.set_yticks([])
+ax1.invert_xaxis()
 ##exit()
 ##print ax1.get_ylim()
 ##ax1.set_ylim(-1, n)

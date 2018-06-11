@@ -18,6 +18,10 @@ import sys,os,binascii
 #    n = len(hex_string)
 #    return binascii.unhexlify(hex_string.zfill(n + (n & 1)))
 
+if len(sys.argv) != 3:
+   print "wrong number of inputs:\n (1) input file with list of zinc id\n (2) output file name\n"
+   exit()
+
 inputfile  = sys.argv[1]
 outputfile = sys.argv[2]
 
@@ -32,6 +36,7 @@ file1.close()
 file2 = open(outputfile,'w')
 
 flush_size = 5000 # this is how meny zinc codes we want to quiery at one time. 
+#flush_size = 1 # this is how meny zinc codes we want to quiery at one time. 
                  # and then write to file
 count = 0
 countnl = 0

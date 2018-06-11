@@ -19,6 +19,7 @@ def main():
   names = []
   file1 = open(smilesfile1,'r')
   for line in file1:
+      print line
       name = line.split()[1]  
       #print line, name
       names.append(name)

@@ -1,7 +1,7 @@
 
 
 #include "best_first.h"
-#include "fast_tanimoto.h"
+#include "../common/fast_tanimoto.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
