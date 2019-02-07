@@ -1,2 +1,2 @@
 # ChemInfTools
-A collection of small scripts to perform chemical foperations
+A collection of small scripts to perform chemical operations
