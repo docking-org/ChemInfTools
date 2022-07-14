@@ -8,6 +8,7 @@
 import os
 
 from rdkit.Chem import AllChem
+import numpy as np
 
 
 def str_to_bit(s):
@@ -176,7 +177,9 @@ def get_fp(infile_path, outfile_path):
     with open(outfile_path, 'w') as f:
         fp_vec = fingerprint_vec(smiles_vec)
         for fp in fp_vec:
-            f.write(f"fingerprint = {fp.ToBitString()}\n")
+            fp_str = fp.ToBitString()
+            fp_with_pipes = "|".join([fp_str[i*8:(i+1)*8] for i in range(int(len(fp_str)/8))] + [""])
+            f.write(f"fingerprint = {fp_with_pipes}\n")
 
     return fp_vec
 
